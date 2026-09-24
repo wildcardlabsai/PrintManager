@@ -208,6 +208,8 @@ export function hasAddress(a: Address | null | undefined): a is Address {
 export interface CreateOrderOptions {
   isDemo?: boolean;
   orderDate?: string;
+  /** Set when the order comes from a marketplace integration. */
+  integration?: { connectionId: string; externalStatus: string | null };
 }
 
 export async function createOrder(ctx: AppContext, data: OrderCreateData, opts: CreateOrderOptions = {}) {
@@ -253,7 +255,14 @@ export async function createOrder(ctx: AppContext, data: OrderCreateData, opts: 
 
   // 2. Products and pricing — de-duplicated so each product/variant gets one job.
   const lines = mergeOrderLines(
-    data.items.map((i) => ({ productId: i.product_id, variantId: i.variant_id, quantity: i.quantity, unitPrice: i.unit_price })),
+    data.items.map((i) => ({
+      productId: i.product_id,
+      variantId: i.variant_id,
+      quantity: i.quantity,
+      unitPrice: i.unit_price,
+      externalLineId: i.external_line_id,
+      externalListingId: i.external_listing_id,
+    })),
   );
   const productIds = [...new Set(lines.map((l) => l.productId))];
   const products = check(
@@ -291,6 +300,8 @@ export async function createOrder(ctx: AppContext, data: OrderCreateData, opts: 
       estimated_minutes: minutes * line.quantity,
       estimated_grams: Math.round(grams * line.quantity * 100) / 100,
       printer_id: product.default_printer_id,
+      external_line_id: line.externalLineId ?? null,
+      external_listing_id: line.externalListingId ?? null,
     };
   });
 
@@ -331,6 +342,10 @@ export async function createOrder(ctx: AppContext, data: OrderCreateData, opts: 
       customer_notes: data.customer_notes,
       internal_notes: data.internal_notes,
       is_demo: opts.isDemo ?? false,
+      actor_id: ctx.userId,
+      ...(opts.integration
+        ? { integration_connection_id: opts.integration.connectionId, external_status: opts.integration.externalStatus }
+        : {}),
     },
     p_items: items,
     p_shipment: {

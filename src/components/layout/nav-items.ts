@@ -5,6 +5,7 @@ import {
   HistoryIcon,
   LayoutDashboardIcon,
   LayersIcon,
+  PlugIcon,
   PrinterIcon,
   SettingsIcon,
   ShoppingBagIcon,
@@ -32,6 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export const SECONDARY_NAV: NavItem[] = [
+  { href: "/settings/integrations", label: "Integrations", icon: PlugIcon },
   { href: "/activity", label: "Activity log", icon: HistoryIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -40,5 +42,7 @@ export const SECONDARY_NAV: NavItem[] = [
 export const MOBILE_TABS = ["/dashboard", "/orders", "/production", "/shipping"];
 
 export function isActive(pathname: string, href: string) {
+  // Settings has its own nav entry for Integrations.
+  if (href === "/settings") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }

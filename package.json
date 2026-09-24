@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "test:integration": "node tests/integration/marketplace-e2e.mjs && node tests/integration/rls-integrations.mjs"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
@@ -37,6 +38,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "playwright": "1.56",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.1"

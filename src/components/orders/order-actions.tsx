@@ -53,12 +53,15 @@ export function OrderActions({
   status,
   jobs,
   shipment,
+  marketplaceName = null,
 }: {
   orderId: string;
   orderNumber: string;
   status: OrderStatus;
   jobs: { id: string; status: JobStatus }[];
   shipment: Pick<Shipment, "provider" | "service" | "shipping_cost" | "tracking_number" | "notes"> | null;
+  /** Set when tracking can be sent to a connected marketplace. */
+  marketplaceName?: string | null;
 }) {
   const router = useRouter();
   const { pending, execute } = useAction();
@@ -89,6 +92,7 @@ export function OrderActions({
           orderNumber={orderNumber}
           shipment={shipment}
           markShipped={key === "mark_shipped"}
+          marketplaceName={marketplaceName}
           trigger={
             <Button size="sm" variant={variant}>
               {ui.icon} {ui.label}

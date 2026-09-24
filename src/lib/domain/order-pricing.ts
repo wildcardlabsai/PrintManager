@@ -57,12 +57,13 @@ export function calculateOrderTotals(input: OrderPricingInput): OrderTotals {
  * Merge lines for the same product/variant so one order never produces two
  * production jobs for the same item.
  */
-export function mergeOrderLines<T extends { productId: string; variantId?: string | null; quantity: number }>(
-  lines: T[],
-): T[] {
+export function mergeOrderLines<
+  T extends { productId: string; variantId?: string | null; quantity: number; externalLineId?: string | null },
+>(lines: T[]): T[] {
   const merged = new Map<string, T>();
   for (const line of lines) {
-    const key = `${line.productId}:${line.variantId ?? ""}`;
+    // Marketplace lines keep their own identity (needed to fulfil each line).
+    const key = `${line.productId}:${line.variantId ?? ""}:${line.externalLineId ?? ""}`;
     const existing = merged.get(key);
     if (existing) {
       merged.set(key, { ...existing, quantity: existing.quantity + line.quantity });

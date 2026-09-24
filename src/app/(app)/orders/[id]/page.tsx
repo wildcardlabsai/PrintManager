@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LayersIcon, TruckIcon } from "lucide-react";
-import { CreateLabelButton } from "@/components/orders/label-phase2-button";
+import {
+  CreateLabelDialog,
+  DownloadLabelLink,
+  RefreshTrackingButton,
+  SendTrackingButton,
+} from "@/components/integrations/order-integration-controls";
+import { FULFILLMENT_STATUS_META } from "@/components/integrations/labels";
 import { EditOrderDialog } from "@/components/orders/edit-order-dialog";
 import { OrderActions } from "@/components/orders/order-actions";
 import { ShipmentDialog } from "@/components/orders/shipment-dialog";
@@ -34,6 +40,11 @@ import { elapsedPrintMinutes } from "@/lib/domain/production";
 import { requirePageContext } from "@/lib/services/context";
 import { AppError } from "@/lib/services/errors";
 import { listUsableFilaments } from "@/lib/services/filaments";
+import { listConnections } from "@/lib/services/integrations/connections";
+import { getOrderFulfillment } from "@/lib/services/integrations/fulfillment";
+import { activeShippingConnection } from "@/lib/services/integrations/labels";
+import { PROVIDER_NAMES, marketplaceForChannel } from "@/lib/integrations/registry";
+import { SHIPPING_INTEGRATIONS } from "@/lib/integrations/shipping/registry";
 import { getOrder, hasAddress } from "@/lib/services/orders";
 import { jobLabel } from "@/lib/services/production";
 import { listPrinterOptions } from "@/lib/services/products";
@@ -70,13 +81,16 @@ function Progress({ status }: { status: OrderStatus }) {
 export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
   const { id } = await params;
   const ctx = await requirePageContext();
-  const [detail, printers, spools] = await Promise.all([
+  const [detail, printers, spools, connections, fulfillment, shippingConn] = await Promise.all([
     getOrder(ctx, id).catch((e) => {
       if (e instanceof AppError && e.code === "not_found") notFound();
       throw e;
     }),
     listPrinterOptions(ctx),
     listUsableFilaments(ctx),
+    listConnections(ctx),
+    getOrderFulfillment(ctx, id),
+    activeShippingConnection(ctx),
   ]);
   const { order: o, items, jobs, shipment, history, activity } = detail;
   const money = (v: number) => formatMoney(v, ctx.settings.currency);
@@ -84,6 +98,13 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
   const address = formatAddress(o.shipping_address);
   const postage = Number(shipment?.shipping_cost ?? 0);
   const now = new Date();
+  const marketplace = marketplaceForChannel(o.sales_channel);
+  const marketplaceConn = marketplace ? connections[marketplace] : undefined;
+  const marketplaceName = marketplace ? PROVIDER_NAMES[marketplace] : null;
+  const canPushTracking = Boolean(marketplace && o.external_order_id && marketplaceConn && marketplaceConn.status !== "disconnected");
+  const shippingProvider = shippingConn ? SHIPPING_INTEGRATIONS[shippingConn.provider] : undefined;
+  const labelOpen = ["confirmed", "awaiting_print", "printing", "printed", "packing", "ready_to_ship", "on_hold", "new"].includes(o.status);
+  const estimatedWeight = Math.round(jobs.filter((j) => j.status !== "cancelled").reduce((s, j) => s + Number(j.actual_grams ?? j.estimated_grams), 0) + 60);
 
   return (
     <>
@@ -111,6 +132,7 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
               status={o.status}
               jobs={jobs.map((j) => ({ id: j.id, status: j.status }))}
               shipment={shipment}
+              marketplaceName={canPushTracking ? marketplaceName : null}
             />
             <EditOrderDialog order={o} />
           </>
@@ -229,6 +251,52 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
           </div>
 
           <div className="space-y-4">
+            {marketplace && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Marketplace</CardTitle>
+                  {fulfillment && <StatusBadge meta={FULFILLMENT_STATUS_META[fulfillment.status]} />}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <DetailList
+                    items={[
+                      ["Sales channel", marketplaceName],
+                      ["External order ID", o.external_order_id ? <span className="font-mono">{o.external_order_id}</span> : "—"],
+                      [
+                        "Integration",
+                        o.integration_connection_id ? (
+                          <span className="text-emerald-700">Imported{o.external_status ? ` · ${o.external_status}` : ""}</span>
+                        ) : (
+                          <span className="text-muted-foreground">Entered manually</span>
+                        ),
+                      ],
+                      ["Last sync", o.last_external_sync_at ? formatDateTime(o.last_external_sync_at, tz) : "—"],
+                      [
+                        "Shipping sync",
+                        fulfillment ? (
+                          <span>
+                            {FULFILLMENT_STATUS_META[fulfillment.status].label}
+                            {fulfillment.synced_at && ` · ${formatDateTime(fulfillment.synced_at, tz)}`}
+                            {fulfillment.error && <span className="block text-xs text-red-700">{fulfillment.error}</span>}
+                          </span>
+                        ) : (
+                          "Not sent"
+                        ),
+                      ],
+                    ]}
+                  />
+                  {canPushTracking && (o.status === "shipped" || o.status === "completed") && fulfillment?.status !== "synced" && (
+                    <SendTrackingButton orderId={o.id} marketplace={marketplaceName!} retry={fulfillment?.status === "failed"} />
+                  )}
+                  {canPushTracking && fulfillment?.status === "synced" && shipment?.tracking_number && fulfillment.tracking_number !== shipment.tracking_number && (
+                    <SendTrackingButton orderId={o.id} marketplace={marketplaceName!} retry={false} />
+                  )}
+                  {marketplace && !marketplaceConn && (
+                    <p className="text-xs text-muted-foreground">{marketplaceName} is not connected, so tracking can&apos;t be sent automatically.</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle>Customer</CardTitle>
@@ -265,7 +333,19 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
                         ["Provider", `${SHIPPING_PROVIDER_LABELS[shipment.provider]}${shipment.service ? ` · ${shipment.service}` : ""}`],
                         ["Tracking", shipment.tracking_number ? <span className="font-mono">{shipment.tracking_number}</span> : <span className="text-muted-foreground">Not added</span>],
                         ["Postage cost", money(shipment.shipping_cost)],
+                        [
+                          "Package",
+                          shipment.package_weight_g
+                            ? `${shipment.package_weight_g} g${shipment.package_format ? ` · ${shipment.package_format}` : ""}${
+                                shipment.package_length_mm ? ` · ${shipment.package_length_mm}×${shipment.package_width_mm}×${shipment.package_height_mm} mm` : ""
+                              }`
+                            : "—",
+                        ],
+                        ...(shipment.external_shipment_id
+                          ? ([["Carrier shipment", <span key="c" className="font-mono">{shipment.external_shipment_id}</span>]] as [string, React.ReactNode][])
+                          : []),
                         ["Shipped", formatDateTime(shipment.shipped_at, tz)],
+                        ...(shipment.label_error ? ([["Label note", <span key="e" className="text-xs text-amber-800">{shipment.label_error}</span>]] as [string, React.ReactNode][]) : []),
                         ...(shipment.notes ? ([["Notes", shipment.notes]] as [string, string][]) : []),
                       ]}
                     />
@@ -280,7 +360,33 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
                           </Button>
                         }
                       />
-                      <CreateLabelButton />
+                      {shippingConn && shippingProvider ? (
+                        labelOpen && (
+                          <CreateLabelDialog
+                            orderId={o.id}
+                            orderNumber={o.order_number}
+                            providerName={shippingProvider.name}
+                            hasExisting={Boolean(shipment.external_shipment_id)}
+                            defaults={{
+                              weightGrams: shipment.package_weight_g,
+                              estimatedWeight,
+                              format: shipment.package_format,
+                              lengthMm: shipment.package_length_mm,
+                              widthMm: shipment.package_width_mm,
+                              heightMm: shipment.package_height_mm,
+                            }}
+                          />
+                        )
+                      ) : (
+                        <p className="w-full text-xs text-muted-foreground">
+                          No shipping provider connected.{" "}
+                          <Link href="/settings/integrations" className="text-primary hover:underline">
+                            Connect one
+                          </Link>
+                        </p>
+                      )}
+                      {(shipment.label_storage_path || (shipment.external_shipment_id && shippingConn?.config?.oba === true)) && <DownloadLabelLink orderId={o.id} />}
+                      {shipment.external_shipment_id && shippingConn && <RefreshTrackingButton orderId={o.id} />}
                     </div>
                   </>
                 ) : (

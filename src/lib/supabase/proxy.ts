@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseEnv } from "@/lib/env";
 
-/** Routes reachable without a session. */
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth", "/api/health"];
+/** Routes reachable without a session. Webhooks and cron authenticate with their own signatures/secrets. */
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth", "/api/health", "/api/webhooks", "/api/cron"];
 
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

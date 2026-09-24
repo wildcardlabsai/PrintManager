@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { InfoIcon, TruckIcon } from "lucide-react";
-import { CreateLabelButton } from "@/components/orders/label-phase2-button";
 import { QuickStatusButton } from "@/components/orders/quick-status-button";
 import { ShipmentDialog } from "@/components/orders/shipment-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -11,12 +10,14 @@ import { DemoBadge, StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/domain/dates";
 import { LABEL_STATUS_META, ORDER_STATUS_META, SALES_CHANNEL_SHORT, SHIPPING_PROVIDER_LABELS } from "@/lib/domain/labels";
+import { PROVIDER_NAMES, marketplaceForChannel } from "@/lib/integrations/registry";
 import { requirePageContext } from "@/lib/services/context";
+import { listConnections } from "@/lib/services/integrations/connections";
 import { SHIPPING_VIEWS, listShipments, type ShipmentRow, type ShippingView } from "@/lib/services/shipping";
 
 export const metadata: Metadata = { title: "Shipping" };
 
-function Actions({ s }: { s: ShipmentRow }) {
+function Actions({ s, marketplaceName }: { s: ShipmentRow; marketplaceName: string | null }) {
   const status = s.order.status;
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -28,6 +29,7 @@ function Actions({ s }: { s: ShipmentRow }) {
           orderNumber={s.order.order_number}
           shipment={s}
           markShipped
+          marketplaceName={marketplaceName}
           trigger={
             <Button size="sm">
               <TruckIcon /> Mark shipped
@@ -53,16 +55,32 @@ export default async function ShippingPage({ searchParams }: PageProps<"/shippin
   const sp = await searchParams;
   const ctx = await requirePageContext();
   const view = (typeof sp.view === "string" && sp.view in SHIPPING_VIEWS ? sp.view : "to_ship") as ShippingView;
-  const rows = await listShipments(ctx, view);
+  const [rows, connections] = await Promise.all([listShipments(ctx, view), listConnections(ctx)]);
+  const marketplaceNameFor = (s: ShipmentRow) => {
+    const p = marketplaceForChannel(s.order.sales_channel);
+    const conn = p ? connections[p] : undefined;
+    return p && conn && conn.status !== "disconnected" ? PROVIDER_NAMES[p] : null;
+  };
   const tz = ctx.settings.timezone;
 
   return (
     <>
-      <PageHeader title="Shipping" description="Pack, add tracking and dispatch." actions={<CreateLabelButton />} />
+      <PageHeader
+        title="Shipping"
+        description="Pack, add tracking and dispatch."
+        actions={
+          <Button asChild size="sm" variant="outline">
+            <Link href="/settings/integrations">Shipping integrations</Link>
+          </Button>
+        }
+      />
       <PageBody>
         <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <InfoIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <p>Shipping label integrations will be connected in Phase 2. For now, buy postage with your carrier and add the tracking number here.</p>
+          <p>
+            Create Royal Mail Click &amp; Drop shipments from an order&apos;s page once Click &amp; Drop is connected. For other carriers, buy postage
+            with the carrier and add the tracking number here.
+          </p>
         </div>
         <div className="rounded-lg border bg-card">
           <div className="border-b px-3 pt-1">
@@ -118,7 +136,7 @@ export default async function ShippingPage({ searchParams }: PageProps<"/shippin
                       )}
                     </div>
                   </div>
-                  <Actions s={s} />
+                  <Actions s={s} marketplaceName={marketplaceNameFor(s)} />
                 </li>
               ))}
             </ul>

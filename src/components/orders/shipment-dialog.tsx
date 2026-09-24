@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { Loader2Icon } from "lucide-react";
+import { toast } from "sonner";
 import { markShippedAction, updateShipmentAction } from "@/actions/shipping";
 import { Field } from "@/components/shared/field";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,17 +27,21 @@ export function ShipmentDialog({
   shipment,
   trigger,
   markShipped = false,
+  marketplaceName = null,
 }: {
   orderId: string;
   orderNumber: string;
   shipment: ShipmentFields | null;
   trigger: React.ReactElement;
   markShipped?: boolean;
+  /** "Etsy" / "eBay" when the order came from a connected marketplace. */
+  marketplaceName?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, execute } = useAction();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState<ShippingProvider>(shipment?.provider ?? "royal_mail");
+  const [sendToMarketplace, setSendToMarketplace] = useState(true);
   const [service, setService] = useState(shipment?.service ?? SHIPPING_SERVICES[shipment?.provider ?? "royal_mail"][0]);
 
   const services = Array.from(new Set([...(SHIPPING_SERVICES[provider] ?? []), ...(service ? [service] : [])]));
@@ -50,7 +56,16 @@ export function ShipmentDialog({
       tracking_number: fd.get("tracking_number"),
       notes: fd.get("notes"),
     };
-    const result = await execute(() => (markShipped ? markShippedAction(orderId, values) : updateShipmentAction(orderId, values)));
+    const result = markShipped
+      ? await execute(() => markShippedAction(orderId, values, Boolean(marketplaceName) && sendToMarketplace), {
+          success: "Order marked as shipped",
+          onSuccess: (d) => {
+            if (d.marketplace.status === "synced") toast.success(`Tracking confirmed by ${marketplaceName}`);
+            if (d.marketplace.status === "failed")
+              toast.error(`${marketplaceName} was not updated`, { description: `${d.marketplace.error ?? ""} You can retry from the order page.` });
+          },
+        })
+      : await execute(() => updateShipmentAction(orderId, values));
     if (result.ok) {
       setOpen(false);
       setErrors({});
@@ -113,6 +128,17 @@ export function ShipmentDialog({
               <Textarea id="s-notes" name="notes" rows={2} defaultValue={shipment?.notes ?? ""} />
             </Field>
           </div>
+          {markShipped && marketplaceName && (
+            <label className="flex items-start gap-2.5 rounded-md border bg-muted/40 p-3 text-sm">
+              <Checkbox checked={sendToMarketplace} onCheckedChange={(c) => setSendToMarketplace(Boolean(c))} className="mt-0.5" />
+              <span>
+                Also mark the order shipped on {marketplaceName} and send the tracking number to the buyer
+                <span className="block text-xs text-muted-foreground">
+                  This updates your live {marketplaceName} order. PrintFlow only shows it as synced once {marketplaceName} confirms.
+                </span>
+              </span>
+            </label>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel

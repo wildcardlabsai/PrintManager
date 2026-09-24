@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangleIcon, ArrowRightIcon, CylinderIcon, InfoIcon, PauseCircleIcon, PlusIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowRightIcon, CylinderIcon, InfoIcon, LinkIcon, PauseCircleIcon, PlusIcon } from "lucide-react";
 import { JobActions } from "@/components/production/job-actions";
 import { JobProgress } from "@/components/production/job-progress";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -16,6 +16,7 @@ import { formatMoney } from "@/lib/domain/money";
 import { requirePageContext } from "@/lib/services/context";
 import { getDashboard } from "@/lib/services/dashboard";
 import { hasDemoData } from "@/lib/services/demo-data";
+import { countAttentionImports } from "@/lib/services/integrations/mappings";
 import { listUsableFilaments } from "@/lib/services/filaments";
 import { format } from "date-fns";
 
@@ -30,7 +31,12 @@ function greeting(hour: number) {
 export default async function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
   const sp = await searchParams;
   const ctx = await requirePageContext();
-  const [d, spools, demo] = await Promise.all([getDashboard(ctx), listUsableFilaments(ctx), hasDemoData(ctx)]);
+  const [d, spools, demo, needsMapping] = await Promise.all([
+    getDashboard(ctx),
+    listUsableFilaments(ctx),
+    hasDemoData(ctx),
+    countAttentionImports(ctx),
+  ]);
   const money = (v: number) => formatMoney(v, ctx.settings.currency);
   const tz = ctx.settings.timezone;
   const now = zonedNow(tz);
@@ -39,6 +45,12 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const nextJobs = d.board.queued.slice(0, 6);
   const notify = ctx.settings.notifications ?? {};
   const alerts = [
+    needsMapping > 0 && {
+      icon: LinkIcon,
+      tone: "amber",
+      text: `${needsMapping} marketplace order${needsMapping === 1 ? "" : "s"} waiting for product mapping — not imported yet`,
+      href: "/settings/integrations/imports",
+    },
     notify.job_failed !== false && d.production.failed > 0 && {
       icon: AlertTriangleIcon,
       tone: "red",

@@ -7,7 +7,8 @@ import { AppError } from "./errors";
 
 export interface AppContext {
   supabase: SupabaseServerClient;
-  userId: string;
+  /** Null for system work (webhooks, scheduled syncs) that runs without a signed-in user. */
+  userId: string | null;
   email: string | null;
   fullName: string | null;
   orgId: string;
@@ -76,4 +77,17 @@ export async function requireActionContext(): Promise<AppContext> {
   const ctx = await loadAppContext();
   if (!ctx) throw new AppError("Set up your business before continuing.", "forbidden");
   return ctx;
+}
+
+/** Integrations and other account-level changes are limited to owners/admins. */
+export async function requireAdminRole(ctx: AppContext) {
+  const { data } = await ctx.supabase
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", ctx.orgId)
+    .eq("user_id", ctx.userId ?? "")
+    .maybeSingle();
+  if (!data || (data.role !== "owner" && data.role !== "admin")) {
+    throw new AppError("Only the business owner or an admin can manage integrations.", "forbidden");
+  }
 }

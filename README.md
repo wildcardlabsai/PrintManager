@@ -2,7 +2,7 @@
 
 Order, production and fulfilment management for small 3D-printing businesses — one place for Etsy, eBay, Facebook Marketplace, website and manual orders, the print queue, printers, filament, shipping and profit.
 
-**Status: Phase 1** — the complete internal system. Marketplace/shipping integrations (Phase 2) and live printer integration (Phase 3) are architected but not implemented; the UI says so wherever they would appear.
+**Status: Phase 2** — the internal system (Phase 1) plus Etsy and eBay order sync, product mapping, tracking push-back and Royal Mail Click & Drop shipments. Live printer integration (Phase 3) is not implemented; the UI says so wherever it would appear.
 
 ## Stack
 
@@ -19,6 +19,19 @@ Next.js 16 (App Router, Server Components, Server Actions) · React 19 · TypeSc
 4. **Environment:** `cp .env.example .env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_SITE_URL`.
 5. `npm install && npm run dev`, open http://localhost:3000, sign up, name your business. Your Flashforge AD5X and Adventurer 5M are created automatically; tick **Load demo data** to explore with sample records (all marked *Demo*, removable from Settings).
 
+### Connecting marketplaces and shipping (Phase 2)
+
+Set the server-only variables in `.env.example` (`SUPABASE_SERVICE_ROLE_KEY`, `INTEGRATION_ENCRYPTION_KEY`, `CRON_SECRET`, and the Etsy/eBay app credentials), then use **Settings → Integrations**.
+
+| Integration | You configure | PrintFlow does |
+| --- | --- | --- |
+| **Etsy** (Open API v3) | Etsy app keystring + shared secret; callback URL `…/api/integrations/etsy/callback`; webhook endpoint `…/api/webhooks/etsy` + its `whsec_` secret | OAuth 2.0 + PKCE, token refresh (rotating refresh tokens), receipt import, `order.*` webhooks (signature-verified, idempotent), tracking via `createReceiptShipment` |
+| **eBay** (Sell Fulfillment API) | App ID / Cert ID, RuName whose accept/decline URLs point to `…/api/integrations/ebay/callback`, account-deletion endpoint + token | OAuth 2.0, token refresh, order import, `createShippingFulfillment` with tracking, account-deletion notifications (verified, data anonymised) |
+| **Royal Mail Click & Drop** | Each business pastes its Click & Drop API key in Settings | Creates Click & Drop orders, returns label PDFs for OBA accounts, pulls tracking numbers |
+| **Facebook / Meta** | — | Not supported: no public Marketplace order API. Facebook sales use the manual order form. |
+
+Orders arrive through **Sync now**, Etsy webhooks and the scheduled sync (`vercel.json` runs `/api/cron/integrations` daily; Vercel Pro can run it more often). Items whose SKU doesn't match a product are held under **Needs mapping** — no order or production job is created until they are mapped.
+
 ### Deploying to Vercel
 
 Import the repo, set the three `NEXT_PUBLIC_*` variables, deploy. Add the production `/auth/confirm` URL to Supabase's redirect list.
@@ -31,7 +44,8 @@ Import the repo, set the three `NEXT_PUBLIC_*` variables, deploy. Add the produc
 | `npm run build` / `npm start` | Production build / server |
 | `npm run typecheck` | TypeScript |
 | `npm run lint` | ESLint |
-| `npm test` | Unit tests (domain logic, validation, timezones) |
+| `npm test` | Unit tests (domain logic, validation, timezones, OAuth/PKCE, adapters, webhooks, retries) |
+| `npm run test:integration` | End-to-end marketplace/shipping flow against the local stack + stub APIs (see `tests/integration/README.md`) |
 | `npm run check` | All three |
 
 ## Architecture
@@ -47,8 +61,13 @@ src/
                         production state machine, SKU matching, dates. Unit tested.
     validation/         Zod schemas shared by forms and actions
     services/           Database access + business logic (server-only), one module per area
-    integrations/       Phase 2/3 contracts: MarketplaceIntegration, ShippingIntegration,
-                        PrinterIntegration, and a registry of planned integrations
+    integrations/       Provider adapters, isolated per provider:
+                          etsy/ ebay/ (OAuth, client, normalisation, webhooks)
+                          shipping/ (ShippingIntegration + Royal Mail Click & Drop)
+                          meta/ (documented "not supported" status), printers/ (Phase 3 contract)
+                        plus shared http (timeouts, retries, backoff), crypto, PKCE
+    services/integrations/  credentials (encrypted, locked refresh), sync engine,
+                        shared import pipeline, mappings, fulfilment, labels, webhooks
     supabase/           Browser, server and proxy Supabase clients
   components/           ui/ primitives, layout/ shell, and feature components
   proxy.ts              Session refresh + route protection (Next 16 "proxy", formerly middleware)
@@ -65,17 +84,23 @@ Key decisions:
 - **Printer status is manual in Phase 1.** Starting/completing a job records the implied status; the UI labels it "Manual status — live printer integration coming in Phase 3".
 - **Multi-tenant ready.** Every row belongs to an `organization`; RLS allows access only to members (`organization_members`). Adding team members later needs no schema change.
 
-### Future integration flow (Phase 2)
+### Marketplace flow
 
 ```
-Marketplace adapter.fetchOrders()  →  NormalizedOrder
-  → importNormalizedOrder()  (lib/services/order-import.ts, already implemented)
-      duplicate check → SKU matching → customer match/create → createOrder()
-  → production jobs → production queue
+Etsy receipt / eBay order ──adapter──▶ NormalizedOrder
+  → processNormalizedOrder()   (lib/services/integrations/import.ts)
+      duplicate check (sales_channel + external_order_id, DB-unique)
+        existing → update (cancellation, marketplace shipment, address)
+        new      → paid & unshipped only → product mapping (listing/SKU)
+                   → MAPPING REQUIRED (held)  or  customer match → createOrder()
+  → production jobs → queue → pack → label (Click & Drop) → tracking
+  → Mark shipped (+ explicit "send to Etsy/eBay") → marketplace confirms → Synced
 ```
 
-Adapters implement `MarketplaceIntegration` / `ShippingIntegration` / `PrinterIntegration`, run server-side only, and read credentials from environment variables (see `.env.example`).
+Secrets: application credentials live in environment variables; per-seller tokens and API keys are AES-256-GCM encrypted and stored in `integration_credentials`, a table with RLS and no policies, readable only by the server's service-role client.
 
 ## Database
+
+Phase 2 adds `integration_connections`, `integration_credentials`, `oauth_states`, `integration_sync_logs`, `external_orders`, `product_mappings`, `marketplace_fulfillments`, `webhook_events`, plus marketplace/package columns on `orders`, `order_items` and `shipments`.
 
 `organizations`, `organization_members`, `profiles`, `settings`, `customers`, `products`, `product_variants`, `product_images`, `product_compatible_printers`, `printers`, `filaments`, `filament_usage`, `orders`, `order_items`, `production_jobs`, `shipments`, `status_history`, `audit_logs` — UUID keys, foreign keys, indexes, check constraints, `updated_at` triggers and RLS on every table. `status_history` and `audit_logs` are append-only for users.

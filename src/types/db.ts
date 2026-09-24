@@ -238,6 +238,9 @@ export interface Order {
   completed_at: string | null;
   is_demo: boolean;
   created_by: string | null;
+  integration_connection_id: string | null;
+  external_status: string | null;
+  last_external_sync_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -256,6 +259,8 @@ export interface OrderItem {
   unit_cost: number;
   line_total: number;
   line_cost: number;
+  external_line_id: string | null;
+  external_listing_id: string | null;
   created_at: string;
 }
 
@@ -308,6 +313,15 @@ export interface Shipment {
   notes: string | null;
   external_shipment_id: string | null;
   label_url: string | null;
+  package_weight_g: number | null;
+  package_length_mm: number | null;
+  package_width_mm: number | null;
+  package_height_mm: number | null;
+  package_format: string | null;
+  label_provider: string | null;
+  label_storage_path: string | null;
+  label_created_at: string | null;
+  label_error: string | null;
   is_demo: boolean;
   created_at: string;
   updated_at: string;

@@ -76,6 +76,9 @@ export const orderItemInputSchema = z.object({
   quantity: wholeNumber("Quantity", 1, 10_000),
   /** Optional price override (e.g. a marketplace price); defaults to the product price. */
   unit_price: optionalMoney("Unit price"),
+  /** Marketplace line identity (Etsy transaction_id / eBay lineItemId). */
+  external_line_id: optionalText(120),
+  external_listing_id: optionalText(120),
 });
 
 export const orderCreateSchema = z
