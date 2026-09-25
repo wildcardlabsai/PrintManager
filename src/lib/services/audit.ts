@@ -31,7 +31,30 @@ export type AuditEvent =
   | "shipment.updated"
   | "settings.updated"
   | "demo_data.loaded"
-  | "demo_data.cleared";
+  | "demo_data.cleared"
+  | "printer.connection_configured"
+  | "printer.checklist_updated"
+  | "printer.verified"
+  | "printer.bed_cleared"
+  | "printer.command_requested"
+  | "printer.command_completed"
+  | "printer.command_failed"
+  | "printer.connected"
+  | "printer.disconnected"
+  | "printer_agent.created"
+  | "printer_agent.paired"
+  | "printer_agent.pairing_code_regenerated"
+  | "printer_agent.revoked"
+  | "printer_agent.token_rotated"
+  | "print_file.created"
+  | "print_file.updated"
+  | "print_file.archived"
+  | "print_file.verified"
+  | "production_job.sent_to_printer"
+  | "production_job.dispatch_failed"
+  | "production_job.attention_resolved"
+  | "production_job.reviewed"
+  | "team.role_changed";
 
 /**
  * Append an audit log entry. Audit failures are logged but never block the

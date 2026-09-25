@@ -12,11 +12,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAction } from "@/hooks/use-action";
 import { PRINTER_STATUS_META } from "@/lib/domain/labels";
-import { PRINTER_STATUSES, type Printer, type PrinterStatus } from "@/types/db";
+import { MANUAL_PRINTER_STATUSES, type Printer, type PrinterStatus } from "@/types/db";
 
 export function PrinterFormDialog({ printer, trigger }: { printer?: Printer; trigger: React.ReactElement }) {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<PrinterStatus>(printer?.status ?? "idle");
+  const [status, setStatus] = useState<PrinterStatus>(printer?.status && (MANUAL_PRINTER_STATUSES as readonly string[]).includes(printer.status) ? printer.status : "idle");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { pending, execute } = useAction();
 
@@ -36,7 +36,11 @@ export function PrinterFormDialog({ printer, trigger }: { printer?: Printer; tri
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{printer ? `Edit ${printer.name}` : "Add printer"}</DialogTitle>
-          <DialogDescription>Status is set manually in Phase 1. Live printer integration is coming in Phase 3.</DialogDescription>
+          <DialogDescription>
+            {printer?.connection_mode === "agent_lan"
+              ? "Status comes from the printer. Connection settings are on the printer's page."
+              : "Status is set by hand for printers that aren't connected. Connect a Flashforge printer from its page."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -49,13 +53,14 @@ export function PrinterFormDialog({ printer, trigger }: { printer?: Printer; tri
             <Field id="pr-model" label="Model">
               <Input id="pr-model" name="model" defaultValue={printer?.model ?? ""} />
             </Field>
+            {printer?.connection_mode !== "agent_lan" && (
             <Field id="pr-status" label="Status (manual)">
               <Select value={status} onValueChange={(v) => setStatus(v as PrinterStatus)}>
                 <SelectTrigger id="pr-status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PRINTER_STATUSES.map((s) => (
+                  {MANUAL_PRINTER_STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
                       {PRINTER_STATUS_META[s].label}
                     </SelectItem>
@@ -63,9 +68,7 @@ export function PrinterFormDialog({ printer, trigger }: { printer?: Printer; tri
                 </SelectContent>
               </Select>
             </Field>
-            <Field id="pr-ip" label="IP address" hint="For Phase 3 integration">
-              <Input id="pr-ip" name="ip_address" defaultValue={printer?.ip_address ?? ""} placeholder="192.168.1.50" />
-            </Field>
+            )}
             <Field id="pr-loc" label="Location">
               <Input id="pr-loc" name="location" defaultValue={printer?.location ?? ""} placeholder="Workshop shelf 1" />
             </Field>

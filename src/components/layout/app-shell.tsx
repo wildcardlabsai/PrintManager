@@ -6,6 +6,7 @@ import { startTransition, useState } from "react";
 import { LogOutIcon, MenuIcon, MoreHorizontalIcon, PlusIcon } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
 import { BrandMark } from "@/components/brand-mark";
+import { NotificationsBell } from "@/components/notifications/notifications-bell";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -122,10 +123,11 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
 
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r bg-sidebar lg:flex">
-        <div className="flex h-14 items-center border-b px-4">
+        <div className="flex h-14 items-center justify-between border-b px-4 pr-2">
           <Link href="/dashboard" aria-label="Dashboard">
             <BrandMark />
           </Link>
+          <NotificationsBell />
         </div>
         <div className="px-3 pt-3">
           <Button asChild size="sm" className="w-full">
@@ -164,6 +166,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
           <Link href="/dashboard" className="min-w-0 flex-1">
             <BrandMark />
           </Link>
+          <NotificationsBell />
           <Button asChild size="sm">
             <Link href="/orders/new">
               <PlusIcon /> Order

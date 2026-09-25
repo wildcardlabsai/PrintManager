@@ -3,6 +3,8 @@ import Link from "next/link";
 import { AlertTriangleIcon, ArrowRightIcon, CylinderIcon, InfoIcon, LinkIcon, PauseCircleIcon, PlusIcon } from "lucide-react";
 import { JobActions } from "@/components/production/job-actions";
 import { JobProgress } from "@/components/production/job-progress";
+import { TelemetryProgress } from "@/components/printers/telemetry-bits";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageBody, PageHeader } from "@/components/shared/page-header";
 import { Stat } from "@/components/shared/stat";
@@ -13,7 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDuration, formatGrams, formatShortDateTime, zonedNow } from "@/lib/domain/dates";
 import { ORDER_STATUS_META, PRINTER_STATUS_META, PRIORITY_META, SALES_CHANNEL_SHORT } from "@/lib/domain/labels";
 import { formatMoney } from "@/lib/domain/money";
-import { requirePageContext } from "@/lib/services/context";
+import { connectionView, effectivePrinterStatus } from "@/lib/printers/status";
+import { hasPermission, requirePageContext } from "@/lib/services/context";
 import { getDashboard } from "@/lib/services/dashboard";
 import { hasDemoData } from "@/lib/services/demo-data";
 import { countAttentionImports } from "@/lib/services/integrations/mappings";
@@ -40,11 +43,29 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
   const money = (v: number) => formatMoney(v, ctx.settings.currency);
   const tz = ctx.settings.timezone;
   const now = zonedNow(tz);
-  const printers = d.printers.map((p) => ({ id: p.id, name: p.name, status: p.status }));
+  const printers = d.printers.map((p) => ({ id: p.id, name: p.name, status: p.status, connection_mode: p.connection_mode }));
+  const realNow = new Date();
+  const offlineAfter = ctx.settings.printer_offline_after_seconds;
+  const connectedIds = new Set(d.printers.filter((p) => p.connection_mode === "agent_lan").map((p) => p.id));
+  const offlinePrinters = d.printers.filter((p) => p.connection_mode === "agent_lan" && effectivePrinterStatus(p, realNow, offlineAfter) === "offline");
+  const attentionJobs = d.board.attention ?? [];
+  const canManage = hasPermission(ctx, "manage_production");
   const firstName = (ctx.fullName ?? "").split(" ")[0];
   const nextJobs = d.board.queued.slice(0, 6);
   const notify = ctx.settings.notifications ?? {};
   const alerts = [
+    attentionJobs.length > 0 && {
+      icon: AlertTriangleIcon,
+      tone: "red",
+      text: `${attentionJobs.length} print${attentionJobs.length === 1 ? "" : "s"} need${attentionJobs.length === 1 ? "s" : ""} attention`,
+      href: "/production",
+    },
+    notify.printer_offline !== false && offlinePrinters.length > 0 && {
+      icon: AlertTriangleIcon,
+      tone: "amber",
+      text: `Offline: ${offlinePrinters.map((p) => p.name).join(", ")}`,
+      href: "/printers",
+    },
     needsMapping > 0 && {
       icon: LinkIcon,
       tone: "amber",
@@ -76,6 +97,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
 
   return (
     <>
+      <AutoRefresh intervalMs={30_000} />
       <PageHeader
         title={`${greeting(now.getHours())}${firstName ? `, ${firstName}` : ""}`}
         description={format(now, "EEEE d MMMM")}
@@ -167,7 +189,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
                           {j.product_name} × {j.quantity}
                         </Link>
                         <div className="text-xs text-muted-foreground">
-                          {j.status === "paused" ? "Paused on " : "Printing on "}
+                          {j.status === "paused" ? "Paused on " : j.status === "sending" ? "Sending to " : j.status === "sent" ? "Queued on " : "Printing on "}
                           {j.printer?.name ?? "—"}
                           {j.order && (
                             <>
@@ -179,8 +201,19 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
                           )}
                         </div>
                       </div>
-                      <JobProgress job={j} />
-                      <JobActions job={j} printers={printers} spools={spools} />
+                      {connectedIds.has(j.printer_id ?? "") ? (
+                        <TelemetryProgress
+                          progress={j.progress}
+                          layer={j.current_layer}
+                          totalLayers={j.total_layers}
+                          elapsedSeconds={j.printer_elapsed_seconds}
+                          remainingSeconds={j.remaining_seconds}
+                          paused={j.status === "paused"}
+                        />
+                      ) : (
+                        <JobProgress job={j} />
+                      )}
+                      {canManage && <JobActions job={{ ...j, connected: connectedIds.has(j.printer_id ?? "") }} printers={printers} spools={spools} />}
                     </li>
                   ))}
                 </ul>
@@ -207,7 +240,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
                           {j.order && ` · ${j.order.order_number}`}
                         </div>
                       </div>
-                      <JobActions job={j} printers={printers} spools={spools} compact />
+                      {canManage && <JobActions job={{ ...j, connected: connectedIds.has(j.printer_id ?? "") }} printers={printers} spools={spools} compact />}
                     </li>
                   ))}
                 </ol>
@@ -292,13 +325,18 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
                         )}
                       </div>
                     </div>
-                    <StatusBadge meta={PRINTER_STATUS_META[p.status]} />
+                    <span className="flex flex-col items-end gap-0.5">
+                      <StatusBadge meta={PRINTER_STATUS_META[effectivePrinterStatus(p, realNow, offlineAfter)]} />
+                      {p.connection_mode === "agent_lan" && (
+                        <span className="text-[10px] text-muted-foreground">{connectionView(p, realNow, offlineAfter).label}</span>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
               <p className="flex items-center gap-1.5 border-t px-4 py-2 text-[11px] text-muted-foreground">
                 <InfoIcon className="size-3.5 shrink-0" aria-hidden />
-                Manual status — live printer integration coming in Phase 3.
+                {connectedIds.size ? "Connected printers report live status; others are set by hand." : "Statuses are set by hand. Connect Flashforge printers under Printers → Printer Agents."}
               </p>
             </Card>
 

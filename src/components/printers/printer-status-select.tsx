@@ -4,7 +4,7 @@ import { setPrinterStatusAction } from "@/actions/printers";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { PRINTER_STATUS_META } from "@/lib/domain/labels";
-import { PRINTER_STATUSES, type PrinterStatus } from "@/types/db";
+import { MANUAL_PRINTER_STATUSES, type PrinterStatus } from "@/types/db";
 
 export function PrinterStatusSelect({ id, status, name }: { id: string; status: PrinterStatus; name: string }) {
   const { pending, execute } = useAction();
@@ -14,7 +14,7 @@ export function PrinterStatusSelect({ id, status, name }: { id: string; status: 
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {PRINTER_STATUSES.map((s) => (
+        {MANUAL_PRINTER_STATUSES.map((s) => (
           <SelectItem key={s} value={s}>
             {PRINTER_STATUS_META[s].label}
           </SelectItem>

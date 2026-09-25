@@ -4,6 +4,9 @@ export type JobAction = "start" | "pause" | "resume" | "complete" | "fail" | "ca
 
 const JOB_ACTIONS: Record<JobStatus, JobAction[]> = {
   queued: ["start", "cancel"],
+  // Dispatch to a connected printer is in flight: wait for the printer (or the timeout).
+  sending: [],
+  sent: ["fail"],
   printing: ["complete", "pause", "fail", "cancel"],
   paused: ["resume", "complete", "fail", "cancel"],
   failed: ["requeue", "cancel"],

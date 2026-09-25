@@ -18,6 +18,8 @@ const NOTIFICATIONS: { key: string; label: string; description: string }[] = [
   { key: "new_order", label: "New orders", description: "Highlight new orders that need confirming on the dashboard." },
   { key: "job_failed", label: "Failed prints", description: "Show failed production jobs as an alert on the dashboard." },
   { key: "low_filament", label: "Low filament", description: "Warn on the dashboard when a spool drops below the threshold." },
+  { key: "printer_offline", label: "Printer offline or error", description: "Bell notification when a connected printer stops responding or reports an error." },
+  { key: "print_completed", label: "Print finished", description: "Bell notification when a connected printer finishes a PrintFlow job." },
   { key: "daily_summary", label: "Daily summary email", description: "Saved for when email delivery is added in a later phase." },
 ];
 
@@ -164,7 +166,7 @@ export function SettingsForm({ settings, printers }: { settings: Settings; print
         </p>
       </FormSection>
 
-      <FormSection title="Notifications" description="In-app alerts appear on the dashboard. Email and push delivery will come in a later phase.">
+      <FormSection title="Notifications" description="In-app alerts appear on the dashboard and under the bell. Email and push delivery will come in a later phase.">
         <ul className="divide-y">
           {NOTIFICATIONS.map((n) => (
             <li key={n.key} className="flex items-center justify-between gap-4 py-2.5">

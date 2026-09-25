@@ -1,27 +1,24 @@
-import type { PrinterStatus } from "@/types/db";
-
 /**
- * Live printer telemetry, as a Phase 3 adapter would report it. Phase 1
- * never produces this: printer status is entered manually.
+ * Printer integrations.
+ *
+ * Printers sit on the business's local network, which a cloud-hosted app
+ * can't reach. The adapters therefore run inside the PrintFlow Printer Agent
+ * (`agent/`), and the app talks to them only through the agent protocol:
+ *
+ *   browser → server action (auth + permission + validation)
+ *           → printer_commands (whitelisted command)  → agent heartbeat
+ *           → PrinterIntegration adapter              → printer (LAN)
+ *
+ * The adapter contract and the Flashforge AD5X / Adventurer 5M adapters live
+ * in agent/src/integration.ts and agent/src/flashforge/. They are re-exported
+ * here for reference and tests.
  */
-export interface PrinterTelemetry {
-  status: PrinterStatus;
-  currentJobRef?: string | null;
-  progressPercent?: number | null;
-  remainingMinutes?: number | null;
-  nozzleTempC?: number | null;
-  bedTempC?: number | null;
-  errorMessage?: string | null;
-  reportedAt: string;
-}
-
-export interface PrinterIntegration {
-  readonly id: string;
-  /** Printer models this adapter can drive, e.g. ["AD5X", "Adventurer 5M"]. */
-  readonly supportedModels: string[];
-  getTelemetry(device: { ipAddress: string | null; deviceId: string | null }): Promise<PrinterTelemetry>;
-  /** Where supported: upload and start a print. Returns the printer-side job reference. */
-  startJob?(device: { ipAddress: string | null; deviceId: string | null }, file: { name: string; url: string }): Promise<string>;
-  pauseJob?(device: { ipAddress: string | null; deviceId: string | null }): Promise<void>;
-  cancelJob?(device: { ipAddress: string | null; deviceId: string | null }): Promise<void>;
-}
+export type {
+  AgentCommand,
+  AgentErrorCode,
+  Capability,
+  PrinterModelKey,
+  PrinterReport,
+  PrinterTelemetry,
+} from "../../../../agent/src/protocol";
+export { MODEL_CAPABILITIES, detectModel } from "../../../../agent/src/protocol";

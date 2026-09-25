@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { clearDemoData, loadDemoData } from "@/lib/services/demo-data";
-import { updateSettings } from "@/lib/services/settings";
-import { settingsSchema } from "@/lib/validation/schemas";
+import { updateProductionSettings, updateSettings } from "@/lib/services/settings";
+import { productionSettingsSchema, settingsSchema } from "@/lib/validation/schemas";
 import { parse, run } from "./_run";
 
 export async function updateSettingsAction(input: unknown) {
@@ -25,4 +25,11 @@ export async function clearDemoDataAction() {
     await clearDemoData(ctx);
     revalidatePath("/", "layout");
   }, "Demo data removed");
+}
+
+export async function updateProductionSettingsAction(input: unknown) {
+  return run(async (ctx) => {
+    await updateProductionSettings(ctx, parse(productionSettingsSchema, input));
+    revalidatePath("/", "layout");
+  }, "Production settings saved");
 }

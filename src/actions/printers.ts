@@ -2,13 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { PRINTER_STATUSES } from "@/types/db";
-import { createPrinter, setPrinterArchived, setPrinterStatusManual, updatePrinter } from "@/lib/services/printers";
-import { printerSchema } from "@/lib/validation/schemas";
+import { MANUAL_PRINTER_STATUSES } from "@/types/db";
+import { configurePrinterConnection, createPrinter, setPrinterArchived, setPrinterStatusManual, updatePrinter } from "@/lib/services/printers";
+import { printerConnectionSchema, printerSchema } from "@/lib/validation/schemas";
 import { parse, run } from "./_run";
 
 function refresh() {
-  revalidatePath("/printers");
+  revalidatePath("/printers", "layout");
   revalidatePath("/dashboard");
   revalidatePath("/production");
 }
@@ -29,7 +29,7 @@ export async function updatePrinterAction(id: string, input: unknown) {
 
 export async function setPrinterStatusAction(id: string, status: string) {
   return run(async (ctx) => {
-    await setPrinterStatusManual(ctx, parse(z.uuid(), id), parse(z.enum(PRINTER_STATUSES), status));
+    await setPrinterStatusManual(ctx, parse(z.uuid(), id), parse(z.enum(MANUAL_PRINTER_STATUSES), status));
     refresh();
   }, "Printer status updated");
 }
@@ -39,4 +39,11 @@ export async function archivePrinterAction(id: string, archived: boolean) {
     await setPrinterArchived(ctx, parse(z.uuid(), id), archived);
     refresh();
   }, archived ? "Printer archived" : "Printer restored");
+}
+
+export async function configurePrinterConnectionAction(id: string, input: unknown) {
+  return run(async (ctx) => {
+    await configurePrinterConnection(ctx, parse(z.uuid(), id), parse(printerConnectionSchema, input));
+    refresh();
+  }, "Connection settings saved");
 }

@@ -3,7 +3,8 @@ import { createServerClient } from "@supabase/ssr";
 import { getSupabaseEnv } from "@/lib/env";
 
 /** Routes reachable without a session. Webhooks and cron authenticate with their own signatures/secrets. */
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth", "/api/health", "/api/webhooks", "/api/cron"];
+// /api/agent authenticates Printer Agents by bearer token (or one-time pairing code) itself.
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth", "/api/health", "/api/webhooks", "/api/cron", "/api/agent"];
 
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

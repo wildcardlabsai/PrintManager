@@ -77,6 +77,8 @@ export const SHIPPING_STATUS_META: Record<ShippingStatus, Meta> = {
 
 export const JOB_STATUS_META: Record<JobStatus, Meta> = {
   queued: { label: "Awaiting print", tone: "amber" },
+  sending: { label: "Sending", tone: "cyan" },
+  sent: { label: "Queued on printer", tone: "cyan" },
   printing: { label: "Printing", tone: "violet" },
   paused: { label: "Paused", tone: "slate" },
   printed: { label: "Printed", tone: "green" },
@@ -96,8 +98,10 @@ export const PRINTER_STATUS_META: Record<PrinterStatus, Meta> = {
   offline: { label: "Offline", tone: "neutral" },
   idle: { label: "Idle", tone: "blue" },
   printing: { label: "Printing", tone: "violet" },
+  paused: { label: "Paused", tone: "slate" },
   error: { label: "Error", tone: "red" },
   maintenance: { label: "Maintenance", tone: "amber" },
+  unknown: { label: "Unknown", tone: "outline" },
 };
 
 export const SPOOL_STATUS_META: Record<SpoolStatus, Meta> = {

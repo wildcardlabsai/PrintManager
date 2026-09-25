@@ -286,9 +286,9 @@ export async function listPrinterOptions(ctx: AppContext) {
   return check(
     await ctx.supabase
       .from("printers")
-      .select("id, name, model, status")
+      .select("id, name, model, status, connection_mode")
       .eq("organization_id", ctx.orgId)
       .is("archived_at", null)
       .order("name"),
-  ) as Pick<Printer, "id" | "name" | "model" | "status">[];
+  ) as Pick<Printer, "id" | "name" | "model" | "status" | "connection_mode">[];
 }

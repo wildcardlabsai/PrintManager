@@ -2,7 +2,8 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient, type SupabaseServerClient } from "@/lib/supabase/server";
-import type { Settings } from "@/types/db";
+import { can, type Permission } from "@/lib/printers/permissions";
+import type { MemberRole, Settings } from "@/types/db";
 import { AppError } from "./errors";
 
 export interface AppContext {
@@ -12,6 +13,8 @@ export interface AppContext {
   email: string | null;
   fullName: string | null;
   orgId: string;
+  /** The member's role; "system" for work without a signed-in user. */
+  role: MemberRole | "system";
   settings: Settings;
 }
 
@@ -43,22 +46,34 @@ export const loadAppContext = cache(async (): Promise<AppContext | null> => {
     .maybeSingle();
 
   let orgId: string | null = profile?.active_organization_id ?? null;
+  let role: MemberRole | null = null;
+  if (orgId) {
+    const { data: membership } = await supabase
+      .from("organization_members")
+      .select("role")
+      .eq("organization_id", orgId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    role = (membership?.role as MemberRole | undefined) ?? null;
+    if (!role) orgId = null;
+  }
   if (!orgId) {
     const { data: membership } = await supabase
       .from("organization_members")
-      .select("organization_id")
+      .select("organization_id, role")
       .eq("user_id", userId)
       .order("created_at")
       .limit(1)
       .maybeSingle();
     orgId = membership?.organization_id ?? null;
+    role = (membership?.role as MemberRole | undefined) ?? null;
   }
-  if (!orgId) return null;
+  if (!orgId || !role) return null;
 
   const { data: settings, error } = await supabase.from("settings").select("*").eq("organization_id", orgId).maybeSingle();
   if (error || !settings) return null;
 
-  return { supabase, userId, email, fullName: profile?.full_name ?? null, orgId, settings: settings as Settings };
+  return { supabase, userId, email, fullName: profile?.full_name ?? null, orgId, role, settings: settings as Settings };
 });
 
 /** For pages: redirects to login/onboarding when needed. */
@@ -79,15 +94,27 @@ export async function requireActionContext(): Promise<AppContext> {
   return ctx;
 }
 
+export function hasPermission(ctx: AppContext, permission: Permission) {
+  return ctx.role === "system" || can(ctx.role, permission);
+}
+
+const PERMISSION_ERRORS: Record<Permission, string> = {
+  view: "You don't have access to this business.",
+  operate_printers: "Only operators, admins and the owner can control printers.",
+  manage_production: "Viewers can't change production. Ask an operator or admin.",
+  configure_printers: "Only the owner or an admin can configure printers.",
+  manage_agents: "Only the owner or an admin can pair or remove Printer Agents.",
+  manage_settings: "Only the owner or an admin can change settings.",
+  manage_team: "Only the owner can change team roles.",
+};
+
+export function requirePermission(ctx: AppContext, permission: Permission) {
+  if (!hasPermission(ctx, permission)) throw new AppError(PERMISSION_ERRORS[permission], "forbidden");
+}
+
 /** Integrations and other account-level changes are limited to owners/admins. */
 export async function requireAdminRole(ctx: AppContext) {
-  const { data } = await ctx.supabase
-    .from("organization_members")
-    .select("role")
-    .eq("organization_id", ctx.orgId)
-    .eq("user_id", ctx.userId ?? "")
-    .maybeSingle();
-  if (!data || (data.role !== "owner" && data.role !== "admin")) {
+  if (!hasPermission(ctx, "manage_settings")) {
     throw new AppError("Only the business owner or an admin can manage integrations.", "forbidden");
   }
 }

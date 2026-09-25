@@ -9,6 +9,7 @@ import {
   type JobAction,
 } from "@/lib/domain/production";
 import { orderStatusSideEffects } from "@/lib/domain/order-workflow";
+import { jobLabel } from "@/lib/production-labels";
 import type { JobCompleteInput, JobUpdateInput } from "@/lib/validation/schemas";
 import type {
   AuditLog,
@@ -17,6 +18,7 @@ import type {
   JobPriority,
   JobStatus,
   Order,
+  PrintFile,
   Printer,
   ProductionJob,
   StatusHistoryEntry,
@@ -26,21 +28,24 @@ import type { AppContext } from "./context";
 import { AppError, check, checkFound, fromDbError } from "./errors";
 import { resolveUserNames } from "./orders";
 
-export const jobLabel = (job: Pick<ProductionJob, "job_number">) => `JOB-${String(job.job_number).padStart(4, "0")}`;
+export { jobLabel };
 
 export interface QueueJob extends ProductionJob {
-  printer: Pick<Printer, "id" | "name"> | null;
-  order: Pick<Order, "id" | "order_number" | "customer_name" | "status" | "sales_channel"> | null;
+  printer: Pick<Printer, "id" | "name" | "connection_mode"> | null;
+  order: Pick<Order, "id" | "order_number" | "customer_name" | "status" | "sales_channel" | "payment_status"> | null;
+  print_file: Pick<PrintFile, "id" | "name" | "verified_at" | "compatible_models" | "material" | "colour" | "multi_colour" | "ifs_required"> | null;
 }
 
 const QUEUE_SELECT =
-  "*, printer:printers(id, name), order:orders(id, order_number, customer_name, status, sales_channel)";
+  "*, printer:printers(id, name, connection_mode), order:orders(id, order_number, customer_name, status, sales_channel, payment_status), print_file:print_files(id, name, verified_at, compatible_models, material, colour, multi_colour, ifs_required)";
 
 export interface ProductionBoard {
   queued: QueueJob[];
   active: QueueJob[];
   failed: QueueJob[];
   printed: QueueJob[];
+  /** Jobs PrintFlow flagged for a person to look at. */
+  attention: QueueJob[];
 }
 
 export async function getProductionBoard(ctx: AppContext, opts: { printedLimit?: number } = {}): Promise<ProductionBoard> {
@@ -49,7 +54,7 @@ export async function getProductionBoard(ctx: AppContext, opts: { printedLimit?:
       .from("production_jobs")
       .select(QUEUE_SELECT)
       .eq("organization_id", ctx.orgId)
-      .in("status", ["queued", "printing", "paused", "failed"])
+      .in("status", ["queued", "sending", "sent", "printing", "paused", "failed"])
       .limit(500),
     ctx.supabase
       .from("production_jobs")
@@ -63,10 +68,11 @@ export async function getProductionBoard(ctx: AppContext, opts: { printedLimit?:
   return {
     queued: openJobs.filter((j) => j.status === "queued").sort(compareQueue),
     active: openJobs
-      .filter((j) => j.status === "printing" || j.status === "paused")
+      .filter((j) => ["sending", "sent", "printing", "paused"].includes(j.status))
       .sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? "")),
     failed: openJobs.filter((j) => j.status === "failed").sort((a, b) => (b.failed_at ?? "").localeCompare(a.failed_at ?? "")),
     printed: check(printed) as QueueJob[],
+    attention: openJobs.filter((j) => j.needs_attention).sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
   };
 }
 
@@ -140,12 +146,16 @@ async function assertPrinterFree(ctx: AppContext, printerId: string, exceptJobId
   }
 }
 
-/** Phase 1 printer status is manual; PrintFlow records the change the user's action implies. */
+/**
+ * For manually tracked printers PrintFlow records the status the user's action
+ * implies. Connected printers report their own status, so they're left alone.
+ */
 async function setPrinterStatus(ctx: AppContext, printerId: string, status: "printing" | "idle", onlyIf?: string) {
   let q = ctx.supabase
     .from("printers")
     .update({ status, status_source: "manual", status_updated_at: new Date().toISOString() })
-    .eq("id", printerId);
+    .eq("id", printerId)
+    .eq("connection_mode", "manual");
   if (onlyIf) q = q.eq("status", onlyIf);
   const { error } = await q;
   if (error) console.error("[printers] status update failed", error);
@@ -180,13 +190,30 @@ const ACTION_EVENTS: Record<JobAction, AuditEvent> = {
 };
 
 /**
- * Applies a manual production action. Phase 1 does not talk to printers:
- * these actions record what the operator did at the machine.
+ * Applies a manual production action. For connected printers, starting,
+ * pausing and resuming go through the printer controls instead; the rest of
+ * these record what the operator did at a printer that is not connected.
  */
 export async function performJobAction(ctx: AppContext, jobId: string, action: JobAction, payload: JobActionPayload = {}) {
   const job = await loadJob(ctx, jobId);
   if (!canPerformJobAction(job.status, action)) {
     throw new AppError(`A job that is ${job.status} can't be ${action === "requeue" ? "re-queued" : `${action}ed`}.`, "validation");
+  }
+  // On a connected printer, starting/pausing/resuming happens on the printer
+  // (Send to printer and the printer controls), never by just recording it.
+  if (action === "start" || action === "pause" || action === "resume") {
+    const printerId = payload.printerId ?? job.printer_id;
+    if (printerId) {
+      const { data: printer } = await ctx.supabase.from("printers").select("name, connection_mode").eq("id", printerId).maybeSingle();
+      if (printer?.connection_mode === "agent_lan") {
+        throw new AppError(
+          action === "start"
+            ? `${printer.name} is connected to PrintFlow: use "Send to printer" so the print actually starts.`
+            : `${printer.name} is connected to PrintFlow: use the printer controls to ${action}.`,
+          "validation",
+        );
+      }
+    }
   }
 
   const now = new Date();
@@ -213,6 +240,10 @@ export async function performJobAction(ctx: AppContext, jobId: string, action: J
       break;
     case "complete": {
       const input: Partial<JobCompleteInput> = payload.complete ?? {};
+      patch.filament_recorded = true;
+      patch.needs_attention = false;
+      patch.attention_code = null;
+      patch.attention_reason = null;
       const elapsed = elapsedPrintMinutes(job, now);
       patch.actual_minutes = input.actual_minutes ?? elapsed;
       patch.accumulated_minutes = elapsed;
@@ -265,6 +296,18 @@ export async function performJobAction(ctx: AppContext, jobId: string, action: J
       patch.accumulated_minutes = 0;
       patch.actual_minutes = null;
       patch.actual_grams = null;
+      Object.assign(patch, {
+        needs_attention: false,
+        attention_code: null,
+        attention_reason: null,
+        progress: null,
+        remaining_seconds: null,
+        printer_status: null,
+        external_printer_job_id: null,
+        printer_file_name: null,
+        sent_at: null,
+        filament_recorded: false,
+      } satisfies Partial<ProductionJob>);
       break;
   }
 
@@ -328,6 +371,16 @@ export async function syncOrderWithJobs(ctx: AppContext, orderId: string) {
 
 export async function assignPrinter(ctx: AppContext, jobId: string, printerId: string | null) {
   const job = await loadJob(ctx, jobId);
+  if (printerId === job.printer_id) return;
+  if (job.status === "sending" || job.status === "sent") {
+    throw new AppError("This job is being sent to its printer. Wait for it to start (or fail) before reassigning.", "validation");
+  }
+  if ((job.status === "printing" || job.status === "paused") && job.printer_id) {
+    const { data: current } = await ctx.supabase.from("printers").select("connection_mode").eq("id", job.printer_id).maybeSingle();
+    if (current?.connection_mode === "agent_lan") {
+      throw new AppError("This job is running on a connected printer; it can't be moved mid-print.", "validation");
+    }
+  }
   if (job.status === "printing" && printerId !== job.printer_id) {
     if (printerId) await assertPrinterFree(ctx, printerId, job.id);
   }

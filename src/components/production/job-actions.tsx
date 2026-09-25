@@ -45,9 +45,11 @@ export type ActionJob = {
   accumulated_minutes: number;
   last_resumed_at: string | null;
   filament_id?: string | null;
+  /** The job's printer is connected to PrintFlow (start/pause/resume happen on the printer). */
+  connected?: boolean;
 };
 
-export type PrinterOption = Pick<Printer, "id" | "name" | "status">;
+export type PrinterOption = Pick<Printer, "id" | "name" | "status"> & { connection_mode?: Printer["connection_mode"] };
 export type SpoolOption = Pick<Filament, "id" | "brand" | "material" | "colour" | "remaining_g">;
 
 const spoolLabel = (s: SpoolOption) => `${[s.brand, s.material, s.colour].filter(Boolean).join(" ")} · ${formatGrams(s.remaining_g)} left`;
@@ -65,8 +67,10 @@ function bestSpool(job: ActionJob, spools: SpoolOption[]) {
 type DialogKind = "start" | "complete" | "fail" | null;
 
 /**
- * Manual production controls. Phase 1 does not control physical printers —
- * these record what the operator did at the machine.
+ * Manual production records: what the operator did at a printer that isn't
+ * connected, plus record-only overrides (complete / fail / cancel) for any
+ * job. Connected printers are controlled with "Send to printer" and the
+ * printer controls instead.
  */
 export function JobActions({
   job,
@@ -81,7 +85,10 @@ export function JobActions({
 }) {
   const { pending, execute } = useAction();
   const [dialog, setDialog] = useState<DialogKind>(null);
-  const actions = allowedJobActions(job.status);
+  const actions = allowedJobActions(job.status).filter(
+    (a) => !(job.connected && (a === "start" || a === "pause" || a === "resume")),
+  );
+  const manualPrinters = printers.filter((p) => p.connection_mode !== "agent_lan");
   if (!actions.length) return null;
 
   const run = (action: JobAction, extra: Record<string, unknown> = {}) =>
@@ -89,18 +96,19 @@ export function JobActions({
       onSuccess: () => setDialog(null),
     });
 
-  const primary: JobAction | null = actions.includes("start")
-    ? "start"
-    : actions.includes("complete")
-      ? "complete"
-      : actions.includes("requeue")
-        ? "requeue"
-        : null;
+  const primary: JobAction | null =
+    actions.includes("start") && manualPrinters.length
+      ? "start"
+      : actions.includes("complete") && !job.connected
+        ? "complete"
+        : actions.includes("requeue")
+          ? "requeue"
+          : null;
   const secondary = actions.filter((a) => a !== primary);
 
   const onPrimary = () => {
     if (primary === "start") {
-      if (job.printer_id && !compact) return run("start");
+      if (job.printer_id && !compact && manualPrinters.some((p) => p.id === job.printer_id)) return run("start");
       return setDialog("start");
     }
     if (primary === "complete") return setDialog("complete");
@@ -130,22 +138,22 @@ export function JobActions({
       case "complete":
         return (
           <DropdownMenuItem key={a} onSelect={() => setDialog("complete")}>
-            <CheckIcon /> Complete
+            <CheckIcon /> {job.connected ? "Mark printed (record only)" : "Complete"}
           </DropdownMenuItem>
         );
       case "fail":
         return (
           <DropdownMenuItem key={a} onSelect={() => setDialog("fail")}>
-            <XCircleIcon /> Mark failed
+            <XCircleIcon /> {job.connected ? "Mark failed (record only)" : "Mark failed"}
           </DropdownMenuItem>
         );
       default:
         return null;
     }
   };
-  const menuItems = secondary.filter((a) => a !== "cancel");
+  const menuItems = secondary.filter((a) => a !== "cancel" && a !== "start");
   const canCancel = secondary.includes("cancel");
-  const primaryForPaused = job.status === "paused" ? "resume" : null;
+  const primaryForPaused = job.status === "paused" && !job.connected ? "resume" : null;
 
   return (
     <div className="flex items-center gap-1.5">
@@ -188,17 +196,19 @@ export function JobActions({
         </DropdownMenu>
       )}
 
-      <StartDialog open={dialog === "start"} onOpenChange={(o) => !o && setDialog(null)} job={job} printers={printers} pending={pending} onSubmit={(printerId) => run("start", { printerId })} />
+      <StartDialog open={dialog === "start"} onOpenChange={(o) => !o && setDialog(null)} job={job} printers={manualPrinters} pending={pending} onSubmit={(printerId) => run("start", { printerId })} />
       <CompleteDialog open={dialog === "complete"} onOpenChange={(o) => !o && setDialog(null)} job={job} spools={spools} pending={pending} onSubmit={(complete) => run("complete", { complete })} />
       <FailDialog open={dialog === "fail"} onOpenChange={(o) => !o && setDialog(null)} job={job} spools={spools} pending={pending} onSubmit={(extra) => run("fail", extra)} />
     </div>
   );
 }
 
-function PhaseNote() {
+function PhaseNote({ connected }: { connected?: boolean }) {
   return (
     <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-      Manual record — PrintFlow does not control the printer yet. Live printer integration is coming in Phase 3.
+      {connected
+        ? "Record only — this does not change anything on the printer. Use it when the printer can't report the outcome itself."
+        : "Manual record — for printers that aren't connected to PrintFlow. It doesn't control the printer."}
     </p>
   );
 }
@@ -218,7 +228,9 @@ function StartDialog({
   pending: boolean;
   onSubmit: (printerId: string) => void;
 }) {
-  const [printerId, setPrinterId] = useState(job.printer_id ?? printers.find((p) => p.status !== "printing")?.id ?? "");
+  const [printerId, setPrinterId] = useState(
+    (job.printer_id && printers.some((p) => p.id === job.printer_id) ? job.printer_id : null) ?? printers.find((p) => p.status !== "printing")?.id ?? "",
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -341,7 +353,7 @@ function CompleteForm({
           <Textarea id={`c-n-${job.id}`} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
       </div>
-      <PhaseNote />
+      <PhaseNote connected={job.connected} />
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>
           Cancel

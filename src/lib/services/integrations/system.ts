@@ -19,6 +19,7 @@ export async function systemContext(orgId: string): Promise<AppContext> {
     email: null,
     fullName: "System",
     orgId,
+    role: "system",
     settings: settings as Settings,
   };
 }

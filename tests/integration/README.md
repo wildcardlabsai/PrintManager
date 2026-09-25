@@ -36,3 +36,23 @@ and the `*_TEST_*` base URLs set (see `src/lib/integrations/config.ts`).
 5. `node tests/integration/marketplace-e2e.mjs` and `node tests/integration/rls-integrations.mjs`
 
 Restart the stub between runs (it keeps its data in memory).
+
+## Printer flow (Phase 3)
+
+`printer-e2e.mjs` drives the app in a browser and runs the real Printer Agent
+(`agent/dist/cli.js`) in **mock mode** — simulated printers, labelled as such in
+the UI. No physical printer is involved.
+
+1. `npm run agent:build`
+2. Add `PRINTER_AGENT_POLL_SECONDS=3` to `.env.local`, then `npm run build && npm start`
+3. `set -a; . ./.env.local; set +a; npm run test:printers`
+
+Optional — exercise the real FlashNetwork FFI transport (`flashforge_lan`
+driver) and the automatic print queue against a **test double** of
+Flashforge's library (`fake-flashnetwork/`, compiled against Flashforge's
+published `FlashNetwork.h`, fetched at build time):
+
+```bash
+tests/integration/fake-flashnetwork/build.sh /tmp/fnet
+FAKE_FNET_DIR=/tmp/fnet npm run test:printers
+```

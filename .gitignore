@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# FlashNetwork test double build output (contains a fetched third-party header)
+tests/integration/fake-flashnetwork/build/

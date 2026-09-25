@@ -233,14 +233,21 @@ export default async function OrderPage({ params }: PageProps<"/orders/[id]">) {
                           {j.status === "printed"
                             ? `Printed ${formatDateTime(j.completed_at, tz)} · ${formatDuration(j.actual_minutes)} · ${formatGrams(j.actual_grams)}`
                             : j.status === "printing" || j.status === "paused"
-                              ? `${j.printer?.name ?? "No printer"} · ${formatDuration(elapsedPrintMinutes(j, now))} of ~${formatDuration(j.estimated_minutes)}`
+                              ? `${j.printer?.name ?? "No printer"} · ${
+                                  j.progress != null ? `${Math.round(Number(j.progress))}% (printer)` : `${formatDuration(elapsedPrintMinutes(j, now))} of ~${formatDuration(j.estimated_minutes)}`
+                                }`
                               : `Est. ${formatDuration(j.estimated_minutes)} · ${formatGrams(j.estimated_grams)}${j.material ? ` · ${j.material}` : ""}${j.colour ? ` ${j.colour}` : ""}`}
                           {j.status === "failed" && j.failure_reason && <span className="text-red-700"> · {j.failure_reason}</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {j.status === "queued" && <AssignPrinterSelect jobId={j.id} printerId={j.printer_id} printers={printers} className="w-52" />}
-                        <JobActions job={j} printers={printers} spools={spools} />
+                        {printers.find((p) => p.id === j.printer_id)?.connection_mode === "agent_lan" && ["queued", "sending", "sent", "printing", "paused"].includes(j.status) && (
+                          <Link href={`/production/${j.id}`} className="text-xs font-medium text-primary hover:underline">
+                            Printer controls
+                          </Link>
+                        )}
+                        <JobActions job={{ ...j, connected: printers.find((p) => p.id === j.printer_id)?.connection_mode === "agent_lan" }} printers={printers} spools={spools} />
                       </div>
                     </li>
                   ))}

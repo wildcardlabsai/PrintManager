@@ -175,6 +175,29 @@ export const printerSchema = z.object({
 });
 export type PrinterInput = z.infer<typeof printerSchema>;
 
+const nullableUuid = z
+  .union([z.literal(""), z.null(), z.undefined(), z.uuid()])
+  .optional()
+  .transform((v) => (v ? v : null));
+
+export const printerConnectionSchema = z.object({
+  connection_mode: z.enum(["manual", "agent_lan"]),
+  agent_id: nullableUuid,
+  serial_number: optionalText(128).transform((v) => (v ? v.toUpperCase() : null)),
+  ip_address: z
+    .union([z.literal(""), z.null(), z.undefined(), z.ipv4({ error: "Enter an IPv4 address like 192.168.1.50" })])
+    .optional()
+    .transform((v) => (v ? v : null)),
+  lan_port: z
+    .union([z.literal(""), z.null(), z.undefined(), z.coerce.number().int().min(1).max(65535)])
+    .optional()
+    .transform((v) => (v === "" || v == null ? null : Number(v))),
+  multi_colour: z.boolean().default(false),
+  colour_channels: z.coerce.number().int().min(1).max(16).default(1),
+  camera: z.enum(["unknown", "none", "built_in", "optional"]).default("unknown"),
+});
+export type PrinterConnectionInput = z.infer<typeof printerConnectionSchema>;
+
 // ---------------------------------------------------------------- filament
 export const filamentSchema = z
   .object({
@@ -238,3 +261,75 @@ export const settingsSchema = z.object({
   notifications: z.record(z.string(), z.boolean()),
 });
 export type SettingsInput = z.infer<typeof settingsSchema>;
+
+export const productionSettingsSchema = z.object({
+  auto_print_enabled: z.boolean(),
+  printer_offline_after_seconds: z.coerce.number().int().min(30, "At least 30 seconds").max(3600, "At most an hour"),
+  printer_command_timeout_seconds: z.coerce.number().int().min(30, "At least 30 seconds").max(900, "At most 15 minutes"),
+});
+export type ProductionSettingsInput = z.infer<typeof productionSettingsSchema>;
+
+// ---------------------------------------------------------------- print files
+const hexOrName = z
+  .string()
+  .trim()
+  .max(40)
+  .nullish()
+  .transform((v) => (v ? v : null));
+
+export const filamentAssignmentSchema = z.object({
+  channel: z.coerce.number().int().min(1).max(16),
+  material: hexOrName,
+  colour: hexOrName,
+  grams: z
+    .union([z.null(), z.undefined(), z.coerce.number().min(0).max(100_000)])
+    .optional()
+    .transform((v) => (v == null ? null : v)),
+});
+
+export const printFileMetaSchema = z
+  .object({
+    name: requiredText("Name", 200),
+    product_id: nullableUuid,
+    variant_id: nullableUuid,
+    compatible_models: z.array(z.enum(["AD5X", "Adventurer 5M"])).min(1, "Choose at least one printer model"),
+    slicer: optionalText(80),
+    slicer_version: optionalText(40),
+    printer_profile: optionalText(120),
+    material: optionalText(40),
+    colour: optionalText(40),
+    nozzle_diameter: z
+      .union([z.literal(""), z.null(), z.undefined(), z.coerce.number().min(0.1).max(2)])
+      .optional()
+      .transform((v) => (v === "" || v == null ? null : Number(v))),
+    multi_colour: z.boolean().default(false),
+    colour_channels: z.coerce.number().int().min(1).max(16).default(1),
+    ifs_required: z.boolean().default(false),
+    filament_assignments: z.array(filamentAssignmentSchema).max(16).default([]),
+    estimated_minutes: z
+      .union([z.literal(""), z.null(), z.undefined(), z.coerce.number().int().min(0).max(100_000)])
+      .optional()
+      .transform((v) => (v === "" || v == null ? null : Number(v))),
+    estimated_grams: z
+      .union([z.literal(""), z.null(), z.undefined(), z.coerce.number().min(0).max(100_000)])
+      .optional()
+      .transform((v) => (v === "" || v == null ? null : Number(v))),
+    is_default: z.boolean().default(false),
+    notes: optionalText(2000),
+  })
+  .refine((v) => !v.ifs_required || v.compatible_models.every((m) => m === "AD5X"), {
+    message: "IFS files can only be printed on the AD5X",
+    path: ["ifs_required"],
+  })
+  .refine((v) => v.multi_colour || v.colour_channels === 1, { message: "Single-colour files have one colour channel", path: ["colour_channels"] })
+  .refine((v) => !v.multi_colour || v.colour_channels >= 2, { message: "Multi-colour files need at least two colours", path: ["colour_channels"] });
+export type PrintFileMetaInput = z.infer<typeof printFileMetaSchema>;
+
+export const printFileUploadSchema = z.object({
+  storage_path: z.string().regex(/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[\w.\- ()]{1,200}$/i, "Invalid upload path"),
+  file_name: z.string().trim().min(1).max(255),
+  file_type: z.enum(["gcode", "gx", "3mf"]),
+  size_bytes: z.coerce.number().int().positive().max(209_715_200, "Files can be up to 200 MB"),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, "Invalid checksum"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+});

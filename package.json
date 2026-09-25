@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "test:integration": "node tests/integration/marketplace-e2e.mjs && node tests/integration/rls-integrations.mjs"
+    "test:integration": "node tests/integration/marketplace-e2e.mjs && node tests/integration/rls-integrations.mjs",
+    "test:printers": "node tests/integration/printer-e2e.mjs",
+    "agent:build": "npm --prefix agent install && npm --prefix agent run build"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",

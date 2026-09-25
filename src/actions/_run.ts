@@ -19,9 +19,17 @@ function zodFieldErrors(error: ZodError) {
  * into a user-friendly ActionResult. Framework control flow (redirect,
  * notFound) is re-thrown.
  */
-export async function run<T>(fn: (ctx: AppContext) => Promise<T>, message?: string): Promise<ActionResult<T>> {
+export async function run<T>(
+  fn: (ctx: AppContext) => Promise<T>,
+  message?: string,
+  opts: { allowViewer?: boolean } = {},
+): Promise<ActionResult<T>> {
   try {
     const ctx = await requireActionContext();
+    // Viewers are read-only everywhere (RLS enforces the same in the database).
+    if (ctx.role === "viewer" && !opts.allowViewer) {
+      throw new AppError("You have view-only access. Ask an operator or admin to make this change.", "forbidden");
+    }
     const data = await fn(ctx);
     return { ok: true, data, message };
   } catch (error) {

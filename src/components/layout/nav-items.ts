@@ -2,6 +2,7 @@ import {
   BarChart3Icon,
   BoxIcon,
   CylinderIcon,
+  FileCodeIcon,
   HistoryIcon,
   LayoutDashboardIcon,
   LayersIcon,
@@ -25,6 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/orders", label: "Orders", icon: ShoppingBagIcon },
   { href: "/production", label: "Production", icon: LayersIcon },
   { href: "/products", label: "Products", icon: BoxIcon },
+  { href: "/print-files", label: "Print files", icon: FileCodeIcon },
   { href: "/customers", label: "Customers", icon: UsersIcon },
   { href: "/printers", label: "Printers", icon: PrinterIcon },
   { href: "/filament", label: "Filament", icon: CylinderIcon },
@@ -39,7 +41,7 @@ export const SECONDARY_NAV: NavItem[] = [
 ];
 
 /** Bottom tab bar on phones: the screens used day-to-day. */
-export const MOBILE_TABS = ["/dashboard", "/orders", "/production", "/shipping"];
+export const MOBILE_TABS = ["/dashboard", "/orders", "/production", "/printers"];
 
 export function isActive(pathname: string, href: string) {
   // Settings has its own nav entry for Integrations.

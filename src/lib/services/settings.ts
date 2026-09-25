@@ -1,12 +1,13 @@
 import "server-only";
 import { productUnitCost } from "@/lib/domain/costing";
-import type { SettingsInput } from "@/lib/validation/schemas";
+import type { ProductionSettingsInput, SettingsInput } from "@/lib/validation/schemas";
 import type { Product, Settings } from "@/types/db";
 import { logAudit } from "./audit";
-import type { AppContext } from "./context";
+import { requirePermission, type AppContext } from "./context";
 import { check } from "./errors";
 
 export async function updateSettings(ctx: AppContext, input: SettingsInput): Promise<Settings> {
+  requirePermission(ctx, "manage_settings");
   const updated = check(
     await ctx.supabase.from("settings").update(input).eq("organization_id", ctx.orgId).select("*").single(),
   ) as Settings;
@@ -50,4 +51,19 @@ export async function recalculateProductCosts(ctx: AppContext): Promise<number> 
     }
   }
   return changed;
+}
+
+/** Settings → Production. The automatic print queue is off unless an admin turns it on. */
+export async function updateProductionSettings(ctx: AppContext, input: ProductionSettingsInput) {
+  requirePermission(ctx, "manage_settings");
+  check(await ctx.supabase.from("settings").update(input).eq("organization_id", ctx.orgId));
+  await logAudit(
+    ctx,
+    "settings.updated",
+    { type: "settings", id: ctx.orgId },
+    input.auto_print_enabled !== ctx.settings.auto_print_enabled
+      ? `Automatic print queue turned ${input.auto_print_enabled ? "ON" : "OFF"}`
+      : "Production settings updated",
+    { ...input, previous_auto_print_enabled: ctx.settings.auto_print_enabled },
+  );
 }

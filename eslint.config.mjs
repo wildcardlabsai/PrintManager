@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Printer Agent build output and dependencies
+    "agent/dist/**",
+    "agent/node_modules/**",
   ]),
 ]);
 
